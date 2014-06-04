@@ -1,5 +1,6 @@
 #!/usr/bin/ruby
 require 'net/http'
+require 'net/https'
 require 'rubygems'
 require 'net/ldap'
 require 'timeout'
@@ -7,7 +8,8 @@ require 'json'
 require 'base64'
 require 'resolv'
 
-$stash_host = 'localhost:7990'
+#$stash_host = 'localhost:7990'
+$stash_host = 'https://localhost:8443'
 $last_sync_file = '/data/stash/tmp/ssh_key_sync_time'
 $stash_user = 'admin_user'
 $stash_pass = 'admin_pass'
@@ -51,8 +53,8 @@ class Key
   attr_reader :id
   def initialize(key)
     if key.is_a?(String) then
-      key.force_encoding('ASCII-8BIT')
-      if !key.ascii_only? then
+      key.force_encoding('ASCII-8BIT') if key.respond_to?('force_encoding')
+      if key.respond_to?('ascii_only') and !key.ascii_only? then
         key = "ssh-rsa " + Base64.encode64(key).chomp.gsub(/\s+/, '')
       end
       @text = key + " (IPA)"
@@ -81,14 +83,21 @@ class Key
 end
 
 def request(method, path, body = nil)
-  http = Net::HTTP.new(*($stash_host.split(':')))
-  req = Net::HTTP.const_get(method.to_s.capitalize.to_sym).new("http://#{$stash_host}/rest/#{path}")
+  url = ''
+  url = 'http://' unless $stash_host.include? '://'
+  url = "#{url}#{$stash_host}/rest/#{path}"
+  url = URI.parse(url)
+  puts "URL: #{url}" if ENV['DEBUG']
+  http = Net::HTTP.new(url.host, url.port)
+  #http.set_debug_output $stderr if ENV['DEBUG']
+  http.use_ssl = url.scheme.include? 'https'
+  req = Net::HTTP.const_get(method.to_s.capitalize.to_sym).new(url.path)
   req.basic_auth($stash_user, $stash_pass)
   if body then
     req.body = body.to_json
     req['Content-Type'] = 'application/json'
   end
-  puts "REQUEST: #{method} http://#{$stash_host}/rest/#{path} #{body.inspect}" if ENV['DEBUG']
+  puts "REQUEST: #{method} #{url} #{body.inspect}" if ENV['DEBUG']
   resp = http.request(req)
   puts "RESPONSE: #{resp.code} #{resp.body.inspect}" if ENV['DEBUG']
   abort "Server failed to respond" if resp.code.nil?
@@ -148,8 +157,11 @@ def update_keys(full = false)
     begin
       Timeout::timeout(5) do
         #ldap = Net::LDAP.new(:host => host, :port => 636, :encryption => :simple_tls, :auth => { :method => :simple, :username => domain_conf['ldap_default_bind_dn'], :password => domain_conf['ldap_default_authtok'] }, :base => domain_conf['ldap_search_base'])
-        ldap = Net::LDAP.new(:host => host, :port => 636, :encryption => :simple_tls, :base => domain_conf['ldap_search_base'])
-        filter = Net::LDAP::Filter.ge('modifyTimestamp', last_entry_time) & Net::LDAP::Filter.eq('ipaSshPubKey', '*')
+        ldap = Net::LDAP.new(:host => host, :port => 636, :encryption => :simple_tls, :base => ldap_base)
+        filter = Net::LDAP::Filter.eq('objectClass', 'posixAccount') &
+	  Net::LDAP::Filter.present('ipaSshPubKey') &
+          Net::LDAP::Filter.ge('modifyTimestamp', last_entry_time) 
+        puts "LDAP: #{host} Base: #{ldap_base} Filter: #{filter.to_s}" if ENV['DEBUG']
         ldap.search(:base => ldap_base, :filter => filter, :attributes => ['uid','ipaSshPubKey','modifyTimestamp']) do |entry|
           next if entry['modifyTimestamp'].first == last_entry_time # ldap doesnt have a `>`, only `>=`, so we have to manually test the `=` bit
           puts "USER KEYS: #{entry['uid'].first} :: #{entry['ipaSshPubKey'].inspect}" if ENV['DEBUG']
