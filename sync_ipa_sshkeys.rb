@@ -1,11 +1,14 @@
 #!/usr/bin/ruby
 require 'net/http'
-require 'net-ldap'
+require 'rubygems'
+require 'net/ldap'
 require 'timeout'
 require 'json'
 require 'base64'
+require 'resolv'
 
 $stash_host = 'localhost:7990'
+$last_sync_file = '/data/stash/tmp/ssh_key_sync_time'
 $stash_user = 'admin_user'
 $stash_pass = 'admin_pass'
 
@@ -116,8 +119,10 @@ def set_user_keys(uid, keys)
 end
 
 def update_keys(full = false)
-  domain = nil
   sssdconf = iniread('/etc/sssd/sssd.conf')
+  ipaconf = iniread('/etc/ipa/default.conf')
+  ldap_base = ipaconf['global']['basedn']
+  domain = ipaconf['global']['domain']
   domains = sssdconf.keys.grep(/^domain\//).collect {|section_name| section_name.sub(/^domain\//, '')}
   if domains.nil? then
     raise(ArgumentError, 'No domains found in SSSD')
@@ -127,26 +132,35 @@ def update_keys(full = false)
   end
   domain_conf = sssdconf["domain/#{domain}"]
 
-  last_entry_time = (!full and File.exists?('/var/lib/stash/tmp/ssh_key_sync_time')) ? File.read('/var/lib/stash/tmp/ssh_key_sync_time') : '20000101000000Z'
+  last_entry_time = (!full and File.exists?($last_sync_file)) ? File.read($last_sync_file) : '20000101000000Z'
 
   entries = []
-  domain_conf['ldap_uri'].split(/,+/).each do |ldap_uri_string|
-    ldap_uri = URI(ldap_uri_string)
+  ldapServers = Array.new
+  unless domain_conf['ldap_uri'].nil? then
+    domain_conf['ldap_uri'].split(/,+/).each do |ldap_uri_string|
+      ldapServers << URI(ldap_uri_string).host
+    end
+  else
+    ldapServers = getLdapServers(domain)
+  end
+  ldapServers.each do |host|
+
     begin
       Timeout::timeout(5) do
-        ldap = Net::LDAP.new(:host => ldap_uri.host, :port => 636, :encryption => :simple_tls, :auth => { :method => :simple, :username => domain_conf['ldap_default_bind_dn'], :password => domain_conf['ldap_default_authtok'] }, :base => domain_conf['ldap_search_base'])
+        #ldap = Net::LDAP.new(:host => host, :port => 636, :encryption => :simple_tls, :auth => { :method => :simple, :username => domain_conf['ldap_default_bind_dn'], :password => domain_conf['ldap_default_authtok'] }, :base => domain_conf['ldap_search_base'])
+        ldap = Net::LDAP.new(:host => host, :port => 636, :encryption => :simple_tls, :base => domain_conf['ldap_search_base'])
         filter = Net::LDAP::Filter.ge('modifyTimestamp', last_entry_time) & Net::LDAP::Filter.eq('ipaSshPubKey', '*')
-        ldap.search(:base => $ldap_base, :filter => filter, :attributes => ['uid','ipaSshPubKey','modifyTimestamp']) do |entry|
+        ldap.search(:base => ldap_base, :filter => filter, :attributes => ['uid','ipaSshPubKey','modifyTimestamp']) do |entry|
           next if entry['modifyTimestamp'].first == last_entry_time # ldap doesnt have a `>`, only `>=`, so we have to manually test the `=` bit
           puts "USER KEYS: #{entry['uid'].first} :: #{entry['ipaSshPubKey'].inspect}" if ENV['DEBUG']
           entries << entry
         end
       end
     rescue Timeout::Error => e
-      $stderr.puts "Timeout communicating with #{ldap_uri.host}:636"
+      $stderr.puts "Timeout communicating with #{host}:636"
       next
     rescue => e
-      $stderr.puts "Unknown error communicating with #{ldap_uri.host}:636: #{e.to_s}"
+      $stderr.puts "Unknown error communicating with #{host}:636: #{e.to_s}"
       next
     end
     break
@@ -156,7 +170,16 @@ def update_keys(full = false)
     set_user_keys(entry['uid'].first, entry['ipaSshPubKey']) if entry['ipaSshPubKey'].size > 0
   end
 
-  File.open('/var/lib/stash/tmp/ssh_key_sync_time', 'w'){|fh| fh.write(last_entry_time)}
+  File.open($last_sync_file, 'w'){|fh| fh.write(last_entry_time)}
+end
+
+def getLdapServers (domain) 
+  dns = Resolv::DNS.new
+  ldapServers = Array.new
+  dns.each_resource("_ldap._tcp.#{domain}", Resolv::DNS::Resource::IN::SRV) do |resource|
+    ldapServers << resource.target.to_s
+  end
+  ldapServers
 end
 
 update_keys
