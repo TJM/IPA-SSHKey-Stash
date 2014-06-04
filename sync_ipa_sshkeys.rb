@@ -62,7 +62,7 @@ class Key
       @id = key['id']
       @text = key['text']
     end
-    @text.match(/^(ssh-[dr]sa)\b[^ ]* (\S+)(?: (.*))/)
+    @text.match(/^(ssh-[dr]s[as])\b[^ ]* (\S+)(?: (.*))/)
     @type = $1
     @data = $2
     @comment = $3
@@ -91,8 +91,9 @@ def request(method, path, body = nil)
   http = Net::HTTP.new(url.host, url.port)
   #http.set_debug_output $stderr if ENV['DEBUG']
   http.use_ssl = url.scheme.include? 'https'
-  req = Net::HTTP.const_get(method.to_s.capitalize.to_sym).new(url.path)
+  req = Net::HTTP.const_get(method.to_s.capitalize.to_sym).new(url.request_uri)
   req.basic_auth($stash_user, $stash_pass)
+  req['Accept'] = 'application/json'
   if body then
     req.body = body.to_json
     req['Content-Type'] = 'application/json'
