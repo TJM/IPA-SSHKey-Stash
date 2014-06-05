@@ -91,6 +91,7 @@ def request(method, path, body = nil)
   http = Net::HTTP.new(url.host, url.port)
   #http.set_debug_output $stderr if ENV['DEBUG']
   http.use_ssl = url.scheme.include? 'https'
+  http.verify_mode = OpenSSL::SSL::VERIFY_NONE if (http.use_ssl and url.host.include? 'localhost')
   req = Net::HTTP.const_get(method.to_s.capitalize.to_sym).new(url.request_uri)
   req.basic_auth($stash_user, $stash_pass)
   req['Accept'] = 'application/json'
