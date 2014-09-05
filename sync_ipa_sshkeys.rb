@@ -71,7 +71,8 @@ class Key
     if !@comment.nil?
       !!@comment.match(/ \(IPA\)$/)
     else
-      $stderr.puts "ERROR: No Comment (local key?) - id: #{@id} / text: #{@text}"
+      $stderr.puts "ERROR: No Comment (local key?) - id: #{@id} / text: #{@text}" if ENV['DEBUG']
+      return false
     end
   end
   def hash
