@@ -68,7 +68,11 @@ class Key
     @comment = $3
   end
   def ipa_key?
-    !!@comment.match(/ \(IPA\)$/)
+    if !@comment.nil?
+      !!@comment.match(/ \(IPA\)$/)
+    else
+      $stderr.puts "ERROR: No Comment (local key?) - id: #{@id} / text: #{@text}"
+    end
   end
   def hash
     "#{@type} #{@data}".hash
