@@ -14,6 +14,10 @@ $last_sync_file = '/data/stash/tmp/ssh_key_sync_time'
 $stash_user = 'admin_user'
 $stash_pass = 'admin_pass'
 
+# Uncomment if you require LDAP Authentication
+#$ldap_user = 'uid=stash,cn=sysaccounts,cn=etc,dc=DOMAIN,dc=COM'
+#$ldap_pass = 'stash_ldap_Password'
+
 def iniread(filename)
   # the sssd config is a slightly non-standard ini file in that there are 2 significant changes that break gems like 'inifile'
   # 1) comments must be on a line by themself.
@@ -163,8 +167,14 @@ def update_keys(full = false)
 
     begin
       Timeout::timeout(5) do
-        #ldap = Net::LDAP.new(:host => host, :port => 636, :encryption => :simple_tls, :auth => { :method => :simple, :username => domain_conf['ldap_default_bind_dn'], :password => domain_conf['ldap_default_authtok'] }, :base => domain_conf['ldap_search_base'])
-        ldap = Net::LDAP.new(:host => host, :port => 636, :encryption => :simple_tls, :base => ldap_base)
+      	ldap_auth = { :method => :simple,
+                      :username => $ldap_user,
+                      :password => $ldap_pass } if ($ldap_user and $ldap_pass)
+	ldap = Net::LDAP.new :host => host,
+                             :port => 636,
+                             :encryption => :simple_tls,
+                             :base => ldap_base,
+                             :auth => ldap_auth
         filter = Net::LDAP::Filter.eq('objectClass', 'posixAccount') &
 	  Net::LDAP::Filter.present('ipaSshPubKey') &
           Net::LDAP::Filter.ge('modifyTimestamp', last_entry_time) 
@@ -174,6 +184,7 @@ def update_keys(full = false)
           puts "USER KEYS: #{entry['uid'].first} :: #{entry['ipaSshPubKey'].inspect}" if ENV['DEBUG']
           entries << entry
         end
+        puts "Search Result:  #{ldap.get_operation_result.code}, message: #{ldap.get_operation_result.message}" if ENV['DEBUG']
       end
     rescue Timeout::Error => e
       $stderr.puts "Timeout communicating with #{host}:636"
