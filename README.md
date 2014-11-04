@@ -20,3 +20,4 @@ Note this requires a fairly powerful account (one that can modify other user's k
 account in LDAP.
 
 Originally at: https://jira.atlassian.com/browse/CWD-2895
+See Also: https://gist.github.com/TJM/d0ed12f3b20ebe2d55ab
