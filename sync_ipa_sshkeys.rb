@@ -206,7 +206,9 @@ end
 def getLdapServers (domain) 
   dns = Resolv::DNS.new
   ldapServers = Array.new
-  dns.each_resource("_ldap._tcp.#{domain}", Resolv::DNS::Resource::IN::SRV) do |resource|
+  srv = dns.getresources("_ldap._tcp.#{domain}", Resolv::DNS::Resource::IN::SRV)
+  srv.sort! { |a,b| (a.priority != b.priority) ? (a.priority <=> b.priority) : (b.weight <=> a.weight) }
+  srv.each do |resource|
     ldapServers << resource.target.to_s
   end
   ldapServers
