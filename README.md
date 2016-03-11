@@ -22,7 +22,7 @@ account in LDAP.
 Requirements (at least on CentOS6)
 -----
 * `yum install ruby rubygem-json`
-* `gem install net-ldap`  _(sorry, this is not an RPM at least in EPEL or RHEL)_
+* `gem install net-ldap -v 0.8.0`  _(sorry, this is not an RPM at least in EPEL or RHEL)_
    * NOTE: You can obtain rubygem-net-ldap as an rpm from Puppet Dependencies repo https://yum.puppetlabs.com/el/6/dependencies/x86_64/ 
 
 
